@@ -128,9 +128,7 @@ void Arch::parseXdc(std::istream &in)
         std::string &cmd = arguments.front();
         if (cmd == "set_property") {
             std::vector<std::pair<std::string, std::string>> arg_pairs;
-            if (arguments.size() != 4)
-                log_error("expected four arguments to 'set_property' (on line %d)\n", lineno);
-            else if (arguments.at(1) == "-dict") {
+            if (arguments.at(1) == "-dict") {
                 std::vector<std::string> dict_args = split_to_args(strip_quotes(arguments.at(2)), false);
                 if ((dict_args.size() % 2) != 0)
                     log_error("expected an even number of argument for dictionary (on line %d)\n", lineno);
@@ -138,7 +136,9 @@ void Arch::parseXdc(std::istream &in)
                 for (int cursor = 0; cursor + 1 < int(dict_args.size()); cursor += 2) {
                     arg_pairs.emplace_back(std::move(dict_args.at(cursor)), std::move(dict_args.at(cursor + 1)));
                 }
-            } else
+            } else if (arguments.size() != 4)
+                log_error("expected four arguments to 'set_property' (on line %d)\n", lineno);
+              else
                 arg_pairs.emplace_back(std::move(arguments.at(1)), std::move(arguments.at(2)));
             if (arguments.at(1) == "INTERNAL_VREF")
                 continue;
