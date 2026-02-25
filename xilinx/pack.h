@@ -112,6 +112,7 @@ struct XilinxPacker
     IdString int_name(IdString base, const std::string &postfix, bool is_hierarchy = true);
     NetInfo *create_internal_net(IdString base, const std::string &postfix, bool is_hierarchy = true);
     void rename_net(IdString old, IdString newname);
+    void ensure_constant_nets();
 
     void tie_port(CellInfo *ci, const std::string &port, bool value, bool inv = false);
 

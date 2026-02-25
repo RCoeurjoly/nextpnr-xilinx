@@ -444,6 +444,61 @@ void XilinxPacker::pack_srls()
     }
 }
 
+void XilinxPacker::ensure_constant_nets()
+{
+    IdString gnd_drv = ctx->id("$PACKER_GND_DRV");
+    IdString vcc_drv = ctx->id("$PACKER_VCC_DRV");
+    IdString gnd_net_name = ctx->id("$PACKER_GND_NET");
+    IdString vcc_net_name = ctx->id("$PACKER_VCC_NET");
+
+    auto ensure_const_net = [&](IdString drv_name, IdString drv_type, IdString net_name) {
+        CellInfo *drv = nullptr;
+        if (ctx->cells.count(drv_name)) {
+            drv = ctx->cells.at(drv_name).get();
+        } else {
+            std::unique_ptr<CellInfo> drv_cell{new CellInfo};
+            drv_cell->name = drv_name;
+            drv = drv_cell.get();
+            ctx->cells[drv_name] = std::move(drv_cell);
+        }
+        drv->type = drv_type;
+        drv->ports[id_Y].name = id_Y;
+        drv->ports[id_Y].type = PORT_OUT;
+
+        NetInfo *net = nullptr;
+        if (ctx->nets.count(net_name)) {
+            net = ctx->nets.at(net_name).get();
+        } else {
+            IdString recovered_name;
+            for (auto &entry : ctx->nets) {
+                NetInfo *candidate = entry.second.get();
+                if (candidate == nullptr)
+                    continue;
+                if (candidate->driver.cell == drv && candidate->driver.port == id_Y) {
+                    recovered_name = entry.first;
+                    break;
+                }
+            }
+            if (recovered_name != IdString()) {
+                rename_net(recovered_name, net_name);
+                net = ctx->nets.at(net_name).get();
+            } else {
+                std::unique_ptr<NetInfo> new_net{new NetInfo};
+                new_net->name = net_name;
+                net = new_net.get();
+                ctx->nets[net_name] = std::move(new_net);
+            }
+        }
+        net->name = net_name;
+        net->driver.cell = drv;
+        net->driver.port = id_Y;
+        drv->ports.at(id_Y).net = net;
+    };
+
+    ensure_const_net(gnd_drv, id_PSEUDO_GND, gnd_net_name);
+    ensure_const_net(vcc_drv, id_PSEUDO_VCC, vcc_net_name);
+}
+
 void XilinxPacker::pack_constants()
 {
     log_info("Packing constants..\n");
@@ -451,35 +506,10 @@ void XilinxPacker::pack_constants()
         get_tied_pins(ctx, tied_pins);
     if (invertible_pins.empty())
         get_invertible_pins(ctx, invertible_pins);
-    if (!ctx->cells.count(ctx->id("$PACKER_GND_DRV"))) {
-        std::unique_ptr<CellInfo> gnd_cell{new CellInfo};
-        gnd_cell->name = ctx->id("$PACKER_GND_DRV");
-        gnd_cell->type = id_PSEUDO_GND;
-        gnd_cell->ports[id_Y].name = id_Y;
-        gnd_cell->ports[id_Y].type = PORT_OUT;
-        std::unique_ptr<NetInfo> gnd_net = std::unique_ptr<NetInfo>(new NetInfo);
-        gnd_net->name = ctx->id("$PACKER_GND_NET");
-        gnd_net->driver.cell = gnd_cell.get();
-        gnd_net->driver.port = id_Y;
-        gnd_cell->ports.at(id_Y).net = gnd_net.get();
-
-        std::unique_ptr<CellInfo> vcc_cell{new CellInfo};
-        vcc_cell->name = ctx->id("$PACKER_VCC_DRV");
-        vcc_cell->type = id_PSEUDO_VCC;
-        vcc_cell->ports[id_Y].name = id_Y;
-        vcc_cell->ports[id_Y].type = PORT_OUT;
-        std::unique_ptr<NetInfo> vcc_net = std::unique_ptr<NetInfo>(new NetInfo);
-        vcc_net->name = ctx->id("$PACKER_VCC_NET");
-        vcc_net->driver.cell = vcc_cell.get();
-        vcc_net->driver.port = id_Y;
-        vcc_cell->ports.at(id_Y).net = vcc_net.get();
-
-        ctx->cells[gnd_cell->name] = std::move(gnd_cell);
-        ctx->nets[gnd_net->name] = std::move(gnd_net);
-        ctx->cells[vcc_cell->name] = std::move(vcc_cell);
-        ctx->nets[vcc_net->name] = std::move(vcc_net);
-    }
-    NetInfo *gnd = ctx->nets[ctx->id("$PACKER_GND_NET")].get(), *vcc = ctx->nets[ctx->id("$PACKER_VCC_NET")].get();
+    IdString gnd_net_name = ctx->id("$PACKER_GND_NET");
+    IdString vcc_net_name = ctx->id("$PACKER_VCC_NET");
+    ensure_constant_nets();
+    NetInfo *gnd = ctx->nets.at(gnd_net_name).get(), *vcc = ctx->nets.at(vcc_net_name).get();
 
     std::vector<IdString> dead_nets;
 
@@ -500,6 +530,8 @@ void XilinxPacker::pack_constants()
 
     for (auto net : sorted(ctx->nets)) {
         NetInfo *ni = net.second;
+        if (ni == nullptr)
+            continue;
         if (ni->driver.cell != nullptr && ni->driver.cell->type == ctx->id("GND")) {
             IdString drv_cell = ni->driver.cell->name;
             for (auto &usr : ni->users) {
@@ -566,6 +598,7 @@ void XilinxPacker::tie_port(CellInfo *ci, const std::string &port, bool value, b
         ci->ports[p].name = p;
         ci->ports[p].type = PORT_IN;
     }
+    ensure_constant_nets();
     if (value || inv)
         connect_port(ctx, ctx->nets.at(ctx->id("$PACKER_VCC_NET")).get(), ci, p);
     else

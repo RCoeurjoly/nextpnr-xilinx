@@ -337,6 +337,12 @@ void XC7Packer::pack_io()
             continue;
         if (ctx->getBelType(bel) != pad_id)
             continue;
+        std::string site = ctx->getBelSite(bel);
+        // Exclude GT pads from generic top-level IO auto-placement.
+        // These sites are direction-specific (IPAD_/OPAD_) and are not
+        // compatible with regular IOB33/IOB18 buffer decomposition.
+        if (boost::starts_with(site, "IPAD_") || boost::starts_with(site, "OPAD_"))
+            continue;
         if (ctx->getBelPackagePin(bel) == ".")
             continue;
         if (used_io_bels.count(bel))
