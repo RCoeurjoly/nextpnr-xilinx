@@ -252,12 +252,24 @@ class HeAPPlacer
                 get_criticalities(ctx, &net_crit);
 
             if (legal_hpwl < best_hpwl) {
-                best_hpwl = legal_hpwl;
-                stalled = 0;
-                // Save solution
-                solution.clear();
+                std::vector<std::tuple<CellInfo *, BelId, PlaceStrength>> candidate_solution;
+                bool candidate_valid = true;
                 for (auto cell : sorted(ctx->cells)) {
-                    solution.emplace_back(cell.second, cell.second->bel, cell.second->belStrength);
+                    if (cell.second->bel == BelId()) {
+                        candidate_valid = false;
+                        if (ctx->debug)
+                            log_info("Ignoring incomplete heap placer solution with unbound cell %s\n",
+                                     cell.first.c_str(ctx));
+                        break;
+                    }
+                    candidate_solution.emplace_back(cell.second, cell.second->bel, cell.second->belStrength);
+                }
+                if (candidate_valid) {
+                    best_hpwl = legal_hpwl;
+                    stalled = 0;
+                    solution = std::move(candidate_solution);
+                } else {
+                    ++stalled;
                 }
             } else {
                 ++stalled;
@@ -271,6 +283,8 @@ class HeAPPlacer
         }
 
         // Apply saved solution
+        if (solution.empty())
+            log_error("Heap placer failed to find a complete legal placement.\n");
         for (auto &sc : solution) {
             CellInfo *cell = std::get<0>(sc);
             if (cell->bel != BelId())
@@ -281,6 +295,8 @@ class HeAPPlacer
             BelId bel;
             PlaceStrength strength;
             std::tie(cell, bel, strength) = sc;
+            if (bel == BelId())
+                log_error("Heap placer saved invalid placement for cell %s.\n", cell->name.c_str(ctx));
             ctx->bindBel(bel, cell, strength);
         }
 
@@ -615,10 +631,18 @@ class HeAPPlacer
     // Update all chains
     void update_all_chains()
     {
-        for (auto cell : place_cells) {
-            chain_size[cell->name] = 1;
-            if (!cell->constr_children.empty())
-                update_chain(cell, cell);
+        chain_root.clear();
+        chain_size.clear();
+        cell_offsets.clear();
+        for (auto cell : sorted(ctx->cells)) {
+            CellInfo *ci = cell.second;
+            if (ci->constr_parent != nullptr)
+                continue;
+            if (!cell_locs.count(ci->name))
+                continue;
+            chain_size[ci->name] = 1;
+            if (!ci->constr_children.empty())
+                update_chain(ci, ci);
         }
     }
 
