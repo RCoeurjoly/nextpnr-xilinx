@@ -373,6 +373,49 @@ def import_device(name, prjxray_root, metadata_root):
 							prim_pin_name=pindata["primary"]))
 					sd.variants[vtype] = vd
 			else:
+				# Some Project X-Ray site types used by MIG DDR PHY hard macros
+				# have site pin metadata in prjxray-db but no nextpnr-xilinx-meta
+				# BEL description yet. Model these as a single primitive BEL so
+				# explicit hard-macro instances can at least be preserved and
+				# placed while detailed routing/timing support is added.
+				xray_sp = prjxray_root + "/site_type_" + sitetype + ".json"
+				if os.path.exists(xray_sp):
+					with open(xray_sp, "r") as jf:
+						xray_sj = json.load(jf)
+					if "site_pins" in xray_sj:
+						site_wire_by_name = {}
+						def wire_index(name):
+							if name not in site_wire_by_name:
+								idx = len(sd.wires)
+								sd.wires.append(SiteWireData(name=name))
+								site_wire_by_name[name] = idx
+							return site_wire_by_name[name]
+						def primitive_pin_name(name):
+							for prefix in (
+								"COUNTERLOADVAL", "COUNTERREADVAL", "ENCALIBPHY",
+								"RANKSELPHY", "CTSBUS", "DQSBUS", "DTSBUS",
+								"INRANKA", "INRANKB", "INRANKC", "INRANKD",
+								"PCENABLECALIB", "AUXOUTPUT", "INBURSTPENDING",
+								"OUTBURSTPENDING", "PHYCTLWD",
+							):
+								if name.startswith(prefix) and name[len(prefix):].isdigit():
+									return "{}[{}]".format(prefix, name[len(prefix):])
+							if len(name) == 3 and name[0] in ("D", "Q") and name[1:].isdigit():
+								return "{}{}[{}]".format(name[0], name[1], name[2])
+							return name
+						belpins = {}
+						for pin, pindata in sorted(xray_sj["site_pins"].items()):
+							wire = pindata.get("wire", pin)
+							direction = {
+								"IN": "INPUT",
+								"OUT": "OUTPUT",
+								"INOUT": "BIDIR",
+							}.get(pindata["direction"], pindata["direction"])
+							prim_pin = primitive_pin_name(pin)
+							belpins[prim_pin] = SiteBELPinData(name=prim_pin, pindir=direction, site_wire_idx=wire_index(wire))
+							sd.pins.append(SitePinData(name=pin, pindir=direction, site_wire_idx=wire_index(wire),
+								prim_pin_name=pin))
+						sd.bels.append(SiteBELData(name=sitetype, bel_type=sitetype, bel_class="BEL", pins=belpins))
 				sd.variants[sitetype] = sd
 			site_type_cache[sitetype] = sd
 		return site_type_cache[sitetype]
