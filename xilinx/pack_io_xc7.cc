@@ -769,7 +769,11 @@ void XC7Packer::pack_iologic()
                 auto user_type = user->type.str(ctx);
                 // OBUFDS has the negative pin connected to an inverter
                 if (no_users == 2 && user_type == "INVERTER") continue;
-                if (   boost::contains(user_type, "OUTBUF_EN")
+                if (   user->type == ctx->id("IOB33_OUTBUF")
+                    || user->type == ctx->id("IOB33M_OUTBUF")
+                    || user->type == ctx->id("IOB18_OUTBUF")
+                    || user->type == ctx->id("IOB18M_OUTBUF")
+                    || boost::contains(user_type, "OUTBUF_EN")
                     || boost::contains(user_type, "OUTBUF_DCIEN"))
                     io_bel = ctx->getBelByName(ctx->id(user->attrs.at(ctx->id("BEL")).as_string()));
                 else
