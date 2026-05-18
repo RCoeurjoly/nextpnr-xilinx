@@ -72,6 +72,14 @@ struct FasmBackend
         }
     }
 
+    void write_absolute_bit(const std::string &tile, const std::string &name, bool value = true)
+    {
+        if (value) {
+            out << tile << "." << name << std::endl;
+            last_was_blank = false;
+        }
+    }
+
     void write_vector(const std::string &name, const std::vector<bool> &value, bool invert = false, bool reverse = true)
     {
         write_prefix();
@@ -4127,8 +4135,13 @@ void write_gtx_channel(CellInfo *ci)
 
         if (ci->type == id_PHASER_REF) {
             write_bit(site + ".IN_USE");
-            if (bool_or_default(ci->attrs, ctx->id("PHASER_CLOCKED_ORACLE_ROUTE"), false))
+            if (bool_or_default(ci->attrs, ctx->id("PHASER_CLOCKED_ORACLE_ROUTE"), false)) {
                 write_bit(site + ".CLOCKED_ORACLE_ROUTE");
+                if (site == "PHASER_REF_X0Y0") {
+                    write_absolute_bit("CMT_TOP_R_LOWER_B_X8Y9", site + ".CLOCKED_ORACLE_ROUTE");
+                    write_absolute_bit("HCLK_CMT_X8Y26", site + ".CLOCKED_ORACLE_ROUTE");
+                }
+            }
         } else if (ci->type == ctx->id("PHY_CONTROL")) {
             write_bit(site + ".IN_USE");
         } else if (ci->type == ctx->id("IN_FIFO")) {
