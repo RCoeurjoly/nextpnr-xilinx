@@ -4127,6 +4127,8 @@ void write_gtx_channel(CellInfo *ci)
 
         if (ci->type == id_PHASER_REF) {
             write_bit(site + ".IN_USE");
+            if (bool_or_default(ci->attrs, ctx->id("PHASER_CLOCKED_ORACLE_ROUTE"), false))
+                write_bit(site + ".CLOCKED_ORACLE_ROUTE");
         } else if (ci->type == ctx->id("PHY_CONTROL")) {
             write_bit(site + ".IN_USE");
         } else if (ci->type == ctx->id("IN_FIFO")) {
