@@ -1571,6 +1571,10 @@ struct FasmBackend
     void write_pll(CellInfo *ci)
     {
         push(get_tile_name(ci->bel.tile));
+        if (bool_or_default(ci->attrs, ctx->id("PHASER_FREQ_BACKBONE_ACTIVE"), false)) {
+            write_bit("PLL_CLK_FREQ_BB2_NS_ACTIVE");
+            write_bit("PLL_CLK_FREQ_BB3_NS_ACTIVE");
+        }
         push("PLLE2_ADV");
         write_bit("IN_USE");
         // FIXME: should be INV not ZINV (XRay error?)
@@ -4110,10 +4114,49 @@ void write_gtx_channel(CellInfo *ci)
         pop();
     }
 
+    bool is_phaser_cell(CellInfo *ci)
+    {
+        return ci->type == id_PHASER_REF || ci->type == id_PHASER_IN_PHY || ci->type == id_PHASER_OUT_PHY ||
+               ci->type == ctx->id("PHY_CONTROL") || ci->type == ctx->id("IN_FIFO") || ci->type == ctx->id("OUT_FIFO");
+    }
+
+    void write_phaser_cell(CellInfo *ci)
+    {
+        push(get_tile_name(ci->bel.tile));
+        std::string site = ctx->getBelSite(ci->bel);
+
+        if (ci->type == id_PHASER_REF) {
+            write_bit(site + ".IN_USE");
+        } else if (ci->type == ctx->id("PHY_CONTROL")) {
+            write_bit(site + ".IN_USE");
+        } else if (ci->type == ctx->id("IN_FIFO")) {
+            write_bit(site + ".IN_USE");
+        } else if (ci->type == ctx->id("OUT_FIFO")) {
+            write_bit(site + ".IN_USE");
+        } else if (ci->type == id_PHASER_IN_PHY || ci->type == id_PHASER_OUT_PHY) {
+            int clkout_div = int_or_default(ci->params, ctx->id("CLKOUT_DIV"), 4);
+            if (clkout_div == 2) {
+                write_bit(site + ".CLKOUT_DIV_2_IN_USE");
+            } else if (clkout_div == 4) {
+                write_bit(site + ".CLKOUT_DIV_4_IN_USE");
+            } else {
+                log_error("%s '%s' has unsupported CLKOUT_DIV=%d for provisional PHASER FASM emission\n",
+                          ci->type.c_str(ctx), ci->name.c_str(ctx), clkout_div);
+            }
+        }
+
+        pop();
+    }
+
     void write_ip()
     {
         for (auto cell : sorted(ctx->cells)) {
             CellInfo *ci = cell.second;
+            if (is_phaser_cell(ci)) {
+                write_phaser_cell(ci);
+                blank();
+                continue;
+            }
             if (ci->type == id_DSP48E1_DSP48E1) {
                 write_dsp_cell(ci);
                 blank();
