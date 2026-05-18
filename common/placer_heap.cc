@@ -354,10 +354,10 @@ class HeAPPlacer
     // structure instead
     struct CellLocation
     {
-        int x, y;
-        int legal_x, legal_y;
-        double rawx, rawy;
-        bool locked, global;
+        int x = 0, y = 0;
+        int legal_x = 0, legal_y = 0;
+        double rawx = 0, rawy = 0;
+        bool locked = false, global = false;
     };
     std::unordered_map<IdString, CellLocation> cell_locs;
     // The set of cells that we will actually place. This excludes locked cells and children cells of macros/chains
@@ -380,6 +380,29 @@ class HeAPPlacer
     double solve_time = 0, cl_time = 0, sl_time = 0;
 
     NetCriticalityMap net_crit;
+
+    CellLocation make_cell_location(Loc loc, bool locked, bool global)
+    {
+        CellLocation cell_loc;
+        cell_loc.x = loc.x;
+        cell_loc.y = loc.y;
+        cell_loc.legal_x = loc.x;
+        cell_loc.legal_y = loc.y;
+        cell_loc.rawx = loc.x;
+        cell_loc.rawy = loc.y;
+        cell_loc.locked = locked;
+        cell_loc.global = global;
+        return cell_loc;
+    }
+
+    CellLocation &get_cell_location(CellInfo *cell)
+    {
+        auto loc = cell_locs.find(cell->name);
+        if (loc == cell_locs.end())
+            log_error("Internal error: cell '%s' of type '%s' has no heap placer seed location\n",
+                      cell->name.c_str(ctx), cell->type.c_str(ctx));
+        return loc->second;
+    }
 
     // Place cells with the BEL attribute set to constrain them
     void place_constraints()
@@ -550,10 +573,7 @@ class HeAPPlacer
             CellInfo *ci = cell.second;
             if (ci->bel != BelId()) {
                 Loc loc = ctx->getBelLocation(ci->bel);
-                cell_locs[cell.first].x = loc.x;
-                cell_locs[cell.first].y = loc.y;
-                cell_locs[cell.first].locked = true;
-                cell_locs[cell.first].global = ctx->getBelGlobalBuf(ci->bel);
+                cell_locs[cell.first] = make_cell_location(loc, true, ctx->getBelGlobalBuf(ci->bel));
             } else if (ci->constr_parent == nullptr) {
                 bool placed = false;
                 while (!placed) {
@@ -563,10 +583,7 @@ class HeAPPlacer
                     BelId bel = available_bels.at(ci->type).back();
                     available_bels.at(ci->type).pop_back();
                     Loc loc = ctx->getBelLocation(bel);
-                    cell_locs[cell.first].x = loc.x;
-                    cell_locs[cell.first].y = loc.y;
-                    cell_locs[cell.first].locked = false;
-                    cell_locs[cell.first].global = ctx->getBelGlobalBuf(bel);
+                    cell_locs[cell.first] = make_cell_location(loc, false, ctx->getBelGlobalBuf(bel));
                     // FIXME
                     if (has_connectivity(cell.second) && !cfg.ioBufTypes.count(ci->type)) {
                         place_cells.push_back(ci);
@@ -614,14 +631,27 @@ class HeAPPlacer
             // FIXME: Improve handling of heterogeneous chains
             if (child->type == root->type)
                 chain_size[root->name]++;
-            if (child->constr_x != child->UNCONSTR)
-                cell_locs[child->name].x = std::max(0, std::min(max_x, base.x + child->constr_x));
-            else
-                cell_locs[child->name].x = base.x; // better handling of UNCONSTR?
-            if (child->constr_y != child->UNCONSTR)
-                cell_locs[child->name].y = std::max(0, std::min(max_y, base.y + child->constr_y));
-            else
-                cell_locs[child->name].y = base.y; // better handling of UNCONSTR?
+            if (child->bel != BelId()) {
+                Loc loc = ctx->getBelLocation(child->bel);
+                cell_locs[child->name] = make_cell_location(loc, true, ctx->getBelGlobalBuf(child->bel));
+            } else {
+                CellLocation child_loc = base;
+                child_loc.locked = false;
+                child_loc.global = false;
+                if (child->constr_x != child->UNCONSTR)
+                    child_loc.x = std::max(0, std::min(max_x, base.x + child->constr_x));
+                else
+                    child_loc.x = base.x; // better handling of UNCONSTR?
+                if (child->constr_y != child->UNCONSTR)
+                    child_loc.y = std::max(0, std::min(max_y, base.y + child->constr_y));
+                else
+                    child_loc.y = base.y; // better handling of UNCONSTR?
+                child_loc.legal_x = child_loc.x;
+                child_loc.legal_y = child_loc.y;
+                child_loc.rawx = child_loc.x;
+                child_loc.rawy = child_loc.y;
+                cell_locs[child->name] = child_loc;
+            }
             chain_root[child->name] = root;
             if (!child->constr_children.empty())
                 update_chain(child, root);
@@ -659,9 +689,13 @@ class HeAPPlacer
     void build_equations(EquationSystem<double> &es, bool yaxis, int iter = -1)
     {
         // Return the x or y position of a cell, depending on ydir
-        auto cell_pos = [&](CellInfo *cell) { return yaxis ? cell_locs.at(cell->name).y : cell_locs.at(cell->name).x; };
+        auto cell_pos = [&](CellInfo *cell) {
+            CellLocation &loc = get_cell_location(cell);
+            return yaxis ? loc.y : loc.x;
+        };
         auto legal_pos = [&](CellInfo *cell) {
-            return yaxis ? cell_locs.at(cell->name).legal_y : cell_locs.at(cell->name).legal_x;
+            CellLocation &loc = get_cell_location(cell);
+            return yaxis ? loc.legal_y : loc.legal_x;
         };
 
         es.reset();
@@ -672,7 +706,7 @@ class HeAPPlacer
                 continue;
             if (ni->users.empty())
                 continue;
-            if (cell_locs.at(ni->driver.cell->name).global)
+            if (get_cell_location(ni->driver.cell).global)
                 continue;
             // Find the bounds of the net in this axis, and the ports that correspond to these bounds
             PortRef *lbport = nullptr, *ubport = nullptr;
@@ -757,7 +791,10 @@ class HeAPPlacer
     void solve_equations(EquationSystem<double> &es, bool yaxis)
     {
         // Return the x or y position of a cell, depending on ydir
-        auto cell_pos = [&](CellInfo *cell) { return yaxis ? cell_locs.at(cell->name).y : cell_locs.at(cell->name).x; };
+        auto cell_pos = [&](CellInfo *cell) {
+            CellLocation &loc = get_cell_location(cell);
+            return yaxis ? loc.y : loc.x;
+        };
         std::vector<double> vals;
         std::transform(solve_cells.begin(), solve_cells.end(), std::back_inserter(vals), cell_pos);
         es.solve(vals, cfg.solverTolerance);
@@ -785,12 +822,12 @@ class HeAPPlacer
             NetInfo *ni = net.second;
             if (ni->driver.cell == nullptr)
                 continue;
-            CellLocation &drvloc = cell_locs.at(ni->driver.cell->name);
+            CellLocation &drvloc = get_cell_location(ni->driver.cell);
             if (drvloc.global)
                 continue;
             int xmin = drvloc.x, xmax = drvloc.x, ymin = drvloc.y, ymax = drvloc.y;
             for (auto &user : ni->users) {
-                CellLocation &usrloc = cell_locs.at(user.cell->name);
+                CellLocation &usrloc = get_cell_location(user.cell);
                 xmin = std::min(xmin, usrloc.x);
                 xmax = std::max(xmax, usrloc.x);
                 ymin = std::min(ymin, usrloc.y);
