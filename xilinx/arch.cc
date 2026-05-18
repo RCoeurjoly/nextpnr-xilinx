@@ -394,8 +394,6 @@ void Arch::setup_pip_blacklist()
                 std::string dest_name = IdString(td.wire_data[pd.dst_index].name).str(this);
                 std::string src_name = IdString(td.wire_data[pd.src_index].name).str(this);
 
-                if (boost::contains(dest_name, "PLLOUT_CLK_FREQ_BB_REBUFOUT"))
-                    blacklist_pips[td.type].insert(j);
                 if (boost::contains(dest_name, "MMCM_CLK_FREQ_BB"))
                     blacklist_pips[td.type].insert(j);
             }
