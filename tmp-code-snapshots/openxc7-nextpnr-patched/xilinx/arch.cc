@@ -394,13 +394,9 @@ void Arch::setup_pip_blacklist()
                 std::string dest_name = IdString(td.wire_data[pd.dst_index].name).str(this);
                 std::string src_name = IdString(td.wire_data[pd.src_index].name).str(this);
 
-                bool phaser_ref_freq_backbone =
-                        boost::starts_with(type, "CMT_TOP_R_LOWER_B") &&
-                        (boost::contains(dest_name, "MMCM_CLK_FREQ_BB_REBUF") ||
-                         (boost::contains(dest_name, "MMCM_CLK_FREQ_BB_NS") &&
-                          boost::contains(src_name, "MMCM_CLK_FREQ_BB_REBUF")));
-
-                if (boost::contains(dest_name, "MMCM_CLK_FREQ_BB") && !phaser_ref_freq_backbone)
+                if (boost::contains(dest_name, "PLLOUT_CLK_FREQ_BB_REBUFOUT"))
+                    blacklist_pips[td.type].insert(j);
+                if (boost::contains(dest_name, "MMCM_CLK_FREQ_BB"))
                     blacklist_pips[td.type].insert(j);
             }
         }
@@ -1314,10 +1310,9 @@ int Arch::getHclkForIob(BelId pad)
     if (boost::starts_with(tiletype, "LIOB"))
         ioi += 1;
     else if (boost::starts_with(tiletype, "RIOB") ||
-             boost::starts_with(tiletype, "GTP_") ||
-             boost::starts_with(tiletype, "GTX_")) {
+             boost::starts_with(tiletype, "GTP_"))
         ioi -= 1;
-    } else {
+    else {
         std::string message = "unknown IOB side of tile type " + tiletype;
         NPNR_ASSERT_FALSE(message.c_str());
     }
